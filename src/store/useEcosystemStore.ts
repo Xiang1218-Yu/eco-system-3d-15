@@ -23,6 +23,11 @@ interface EcosystemStore {
   getStats: () => EcosystemStats;
   batchUpdateOrganisms: (updates: { id: string; updates: Partial<Organism> }[]) => void;
   batchRemoveOrganisms: (ids: string[]) => void;
+  commitSimulationStep: (step: {
+    updates: { id: string; updates: Partial<Organism> }[];
+    toRemove: string[];
+    toAdd: { speciesId: string; position?: THREE.Vector3 }[];
+  }) => void;
 }
 
 const AQUARIUM_BOUNDS = {
@@ -127,6 +132,30 @@ export const useEcosystemStore = create<EcosystemStore>((set, get) => ({
       organisms: prev.organisms.filter((o) => !idSet.has(o.id)),
       selectedOrganismId:
         prev.selectedOrganismId && idSet.has(prev.selectedOrganismId) ? null : prev.selectedOrganismId,
+    }));
+  },
+
+  commitSimulationStep: ({ updates, toRemove, toAdd }) => {
+    const removeIds = new Set(toRemove);
+    const updateMap = new Map(updates.map((u) => [u.id, u.updates]));
+    const newOrganisms = toAdd
+      .map(({ speciesId, position }) => createOrganism(speciesId, position))
+      .filter((organism): organism is Organism => organism !== null);
+
+    set((prev) => ({
+      organisms: [
+        ...prev.organisms
+          .filter((o) => !removeIds.has(o.id))
+          .map((o) => {
+            const update = updateMap.get(o.id);
+            return update ? { ...o, ...update } : o;
+          }),
+        ...newOrganisms,
+      ],
+      selectedOrganismId:
+        prev.selectedOrganismId && removeIds.has(prev.selectedOrganismId)
+          ? null
+          : prev.selectedOrganismId,
     }));
   },
 

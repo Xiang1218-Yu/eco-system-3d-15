@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check": "tsc -b --noEmit"
+    "check": "tsc -b --noEmit",
+    "test": "node scripts/run-simulator-tests.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.0",

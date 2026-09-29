@@ -83,17 +83,21 @@ function findNearestDead(
   return nearest;
 }
 
-export function simulateStep(
-  organisms: Organism[],
-): {
+export interface SimulationStepResult {
   updates: { id: string; updates: Partial<Organism> }[];
   toRemove: string[];
   toAdd: { speciesId: string; position: THREE.Vector3 }[];
-} {
+}
+
+export function simulateStep(
+  organisms: Organism[],
+): SimulationStepResult {
   const updates: Map<string, Partial<Organism>> = new Map();
   const toRemove: Set<string> = new Set();
   const toAdd: { speciesId: string; position: THREE.Vector3 }[] = [];
   const eatenPrey: Set<string> = new Set();
+  const reproductionCandidates: Map<string, { organism: Organism; update: Partial<Organism> }> =
+    new Map();
 
   for (const organism of organisms) {
     const species = getSpeciesById(organism.speciesId);
@@ -247,29 +251,49 @@ export function simulateStep(
     organismUpdate.energy = energy;
     organismUpdate.age = age;
 
-    if (
-      energy > species.energyValue * 0.8 &&
-      Math.random() < species.reproductionRate * 0.1
-    ) {
-      const aliveCount = organisms.filter(
-        (o) => o.speciesId === organism.speciesId && !toRemove.has(o.id),
-      ).length;
-      if (aliveCount < species.maxPopulation) {
-        const offspringPos = organism.position
-          .clone()
-          .add(
-            new THREE.Vector3(
-              (Math.random() - 0.5) * 1.5,
-              Math.random() * 0.5,
-              (Math.random() - 0.5) * 1.5,
-            ),
-          );
-        toAdd.push({ speciesId: organism.speciesId, position: offspringPos });
-        organismUpdate.energy = energy * 0.5;
-      }
+    if (energy > species.energyValue * 0.8) {
+      reproductionCandidates.set(organism.id, { organism, update: organismUpdate });
     }
 
     updates.set(organism.id, organismUpdate);
+  }
+
+  const survivingCounts: Map<string, number> = new Map();
+  for (const organism of organisms) {
+    if (!toRemove.has(organism.id)) {
+      survivingCounts.set(
+        organism.speciesId,
+        (survivingCounts.get(organism.speciesId) || 0) + 1,
+      );
+    }
+  }
+
+  const pendingCounts = new Map(survivingCounts);
+
+  for (const [organismId, { organism, update: organismUpdate }] of reproductionCandidates) {
+    if (toRemove.has(organismId)) continue;
+
+    const species = getSpeciesById(organism.speciesId);
+    const energy = Number(organismUpdate.energy);
+    if (!species || !(energy > species.energyValue * 0.8)) continue;
+
+    const aliveCount = pendingCounts.get(species.id) || 0;
+    if (aliveCount >= species.maxPopulation) continue;
+
+    if (Math.random() < species.reproductionRate * 0.1) {
+      const offspringPos = organism.position
+        .clone()
+        .add(
+          new THREE.Vector3(
+            (Math.random() - 0.5) * 1.5,
+            Math.random() * 0.5,
+            (Math.random() - 0.5) * 1.5,
+          ),
+        );
+      toAdd.push({ speciesId: species.id, position: offspringPos });
+      organismUpdate.energy = energy * 0.5;
+      pendingCounts.set(species.id, aliveCount + 1);
+    }
   }
 
   const updatesArray: { id: string; updates: Partial<Organism> }[] = [];
