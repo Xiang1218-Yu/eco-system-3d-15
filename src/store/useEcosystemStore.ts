@@ -3,6 +3,12 @@ import * as THREE from 'three';
 import type { Organism, EcosystemStats, Species } from '@/types/ecosystem';
 import { getSpeciesById, SPECIES } from '@/data/species';
 
+interface SimulationStepChanges {
+  updates: { id: string; updates: Partial<Organism> }[];
+  toRemove: string[];
+  toAdd: { speciesId: string; position?: THREE.Vector3 }[];
+}
+
 interface EcosystemStore {
   organisms: Organism[];
   selectedSpeciesId: string | null;
@@ -23,6 +29,7 @@ interface EcosystemStore {
   getStats: () => EcosystemStats;
   batchUpdateOrganisms: (updates: { id: string; updates: Partial<Organism> }[]) => void;
   batchRemoveOrganisms: (ids: string[]) => void;
+  commitSimulationStep: (changes: SimulationStepChanges) => void;
 }
 
 const AQUARIUM_BOUNDS = {
@@ -128,6 +135,47 @@ export const useEcosystemStore = create<EcosystemStore>((set, get) => ({
       selectedOrganismId:
         prev.selectedOrganismId && idSet.has(prev.selectedOrganismId) ? null : prev.selectedOrganismId,
     }));
+  },
+
+  commitSimulationStep: ({ updates, toRemove, toAdd }) => {
+    set((prev) => {
+      const removalIds = new Set(toRemove);
+      const updateMap = new Map(updates.map((u) => [u.id, u.updates]));
+      const survivingOrganisms = prev.organisms
+        .filter((o) => !removalIds.has(o.id))
+        .map((o) => {
+          const update = updateMap.get(o.id);
+          return update ? { ...o, ...update } : o;
+        });
+
+      const populationBySpecies = new Map<string, number>();
+      survivingOrganisms.forEach((o) => {
+        populationBySpecies.set(o.speciesId, (populationBySpecies.get(o.speciesId) ?? 0) + 1);
+      });
+
+      const addedOrganisms: Organism[] = [];
+      toAdd.forEach(({ speciesId, position }) => {
+        const species = getSpeciesById(speciesId);
+        if (!species) return;
+
+        const currentCount = populationBySpecies.get(speciesId) ?? 0;
+        if (currentCount >= species.maxPopulation) return;
+
+        const organism = createOrganism(speciesId, position);
+        if (!organism) return;
+
+        addedOrganisms.push(organism);
+        populationBySpecies.set(speciesId, currentCount + 1);
+      });
+
+      return {
+        organisms: [...survivingOrganisms, ...addedOrganisms],
+        selectedOrganismId:
+          prev.selectedOrganismId && removalIds.has(prev.selectedOrganismId)
+            ? null
+            : prev.selectedOrganismId,
+      };
+    });
   },
 
   setSelectedSpecies: (speciesId) => {
